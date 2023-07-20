@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using OpenIddict.Abstractions;
@@ -11,9 +12,11 @@ using Volo.Abp;
 using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Identity;
 using Volo.Abp.OpenIddict.Applications;
 using Volo.Abp.OpenIddict.Scopes;
 using Volo.Abp.PermissionManagement;
+using Volo.Abp.TenantManagement;
 using Volo.Abp.Uow;
 
 namespace Acme.BookStore.OpenIddict;
@@ -23,38 +26,50 @@ namespace Acme.BookStore.OpenIddict;
  */
 public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDependency
 {
-    private readonly IConfiguration _configuration;
-    private readonly IOpenIddictApplicationRepository _openIddictApplicationRepository;
-    private readonly IAbpApplicationManager _applicationManager;
-    private readonly IOpenIddictScopeRepository _openIddictScopeRepository;
-    private readonly IOpenIddictScopeManager _scopeManager;
-    private readonly IPermissionDataSeeder _permissionDataSeeder;
-    private readonly IStringLocalizer<OpenIddictResponse> L;
+	private readonly IConfiguration _configuration;
+	private readonly IOpenIddictApplicationRepository _openIddictApplicationRepository;
+	private readonly IAbpApplicationManager _applicationManager;
+	private readonly IOpenIddictScopeRepository _openIddictScopeRepository;
+	private readonly IOpenIddictScopeManager _scopeManager;
+	private readonly IPermissionDataSeeder _permissionDataSeeder;
+	private readonly IStringLocalizer<OpenIddictResponse> L;
+	private readonly IdentityUserManager _identityUserManager;
+	private readonly RoleManager<IdentityRole> _roleManager;
+	private readonly TenantManager _tenantManager;
 
-    public OpenIddictDataSeedContributor(
-        IConfiguration configuration,
-        IOpenIddictApplicationRepository openIddictApplicationRepository,
-        IAbpApplicationManager applicationManager,
-        IOpenIddictScopeRepository openIddictScopeRepository,
-        IOpenIddictScopeManager scopeManager,
-        IPermissionDataSeeder permissionDataSeeder,
-        IStringLocalizer<OpenIddictResponse> l )
-    {
-        _configuration = configuration;
-        _openIddictApplicationRepository = openIddictApplicationRepository;
-        _applicationManager = applicationManager;
-        _openIddictScopeRepository = openIddictScopeRepository;
-        _scopeManager = scopeManager;
-        _permissionDataSeeder = permissionDataSeeder;
-        L = l;
-    }
 
-    [UnitOfWork]
+	public OpenIddictDataSeedContributor(
+		IConfiguration configuration,
+		IOpenIddictApplicationRepository openIddictApplicationRepository,
+		IAbpApplicationManager applicationManager,
+		IOpenIddictScopeRepository openIddictScopeRepository,
+		IOpenIddictScopeManager scopeManager,
+		IPermissionDataSeeder permissionDataSeeder,
+		IdentityUserManager identityUserManager,
+		RoleManager<IdentityRole> roleManager,
+		TenantManager tenantManager,
+		IStringLocalizer<OpenIddictResponse> l)
+	{
+		_configuration = configuration;
+		_openIddictApplicationRepository = openIddictApplicationRepository;
+		_applicationManager = applicationManager;
+		_openIddictScopeRepository = openIddictScopeRepository;
+		_scopeManager = scopeManager;
+		_permissionDataSeeder = permissionDataSeeder;
+		_identityUserManager = identityUserManager;
+		_roleManager = roleManager;
+		_tenantManager = tenantManager;
+		L = l;
+	}
+
+	[UnitOfWork]
     public virtual async Task SeedAsync(DataSeedContext context)
     {
         await CreateScopesAsync();
         await CreateApplicationsAsync();
-    }
+		await CreateUsersAsync();
+		await CreateRolesAndTenantsAsync();
+	}
 
     private async Task CreateScopesAsync()
     {
@@ -192,7 +207,24 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
         }
     }
 
-    private async Task CreateApplicationAsync(
+	private async Task CreateRolesAndTenantsAsync()
+	{
+		var tenant1 = await _tenantManager.CreateAsync("TestTenant1");
+		var tenant2 = await _tenantManager.CreateAsync("TestTenant2");
+
+		await _roleManager.CreateAsync(new IdentityRole(Guid.NewGuid(), "Role1", tenant1.Id));
+		await _roleManager.CreateAsync(new IdentityRole(Guid.NewGuid(), "Role2", tenant2.Id));
+	}
+
+	private async Task CreateUsersAsync()
+	{
+		IdentityUser identityUser1 = new IdentityUser(Guid.NewGuid(), "test_admin", "testadmin@mail.com");
+		await _identityUserManager.CreateAsync(identityUser1, "testPassword");
+		IdentityUser identityUser2 = new IdentityUser(Guid.NewGuid(), "test_admin2", "testadmin2@mail.com");
+		await _identityUserManager.CreateAsync(identityUser2, "testPassword");
+	}
+
+	private async Task CreateApplicationAsync(
         [NotNull] string name,
         [NotNull] string type,
         [NotNull] string consentType,
